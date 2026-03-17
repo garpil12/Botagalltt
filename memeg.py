@@ -16,23 +16,23 @@ LOGGER = logging.getLogger(__name__)
 api_id = API_ID
 api_hash = API_HASH
 bot_token = BOT_TOKEN
-kntl = TelegramClient('dareen', api_id, api_hash).start(bot_token=bot_token)
+kntl = TelegramClient('garfield', api_id, api_hash).start(bot_token=bot_token)
 spam_chats = []
 
 
 @kntl.on(events.NewMessage(pattern="^/start$"))
 async def help(event):
-  helptext = "**Halo 👋🏻!\n\nKenalin Nih, Gua Bot Tag All Yang Di Rancang Sama @Darenrorr Dengan Berbasis Python.\n\nGua Siap Membantu Lu Dengan Mention Semua Anggota Di Group Anda**"
+  helptext = "**Halo 👋🏻!\n\nKenalin Nih, Gua Bot Tag All buat ngebantu lu tag member group lu njink!! support by @Brsik23.\n\nGua Siap Membantu Lu Dengan Mention Semua Anggota Di Group Anda**"
   await event.reply(
     helptext,
     link_preview=False,
     buttons=(
       [
-        Button.url('Developer', 't.me/darenrorr'),
+        Button.url('Developer', 't.me/Brsik23'),
       ],
       [
-        Button.url('Support', 't.me/Darensupport'),
-        Button.url('Channel', 't.me/cehadaren'),
+        Button.url('Support', 't.me/offcgarfield'),
+        Button.url('Channel', 't.me/storegarf'),
       ],
     )
   )
@@ -41,7 +41,7 @@ async def help(event):
 async def mentionall(event):
   chat_id = event.chat_id
   if event.is_private:
-    return await event.respond("**Jangan Privat Tolol**!")
+    return await event.respond("**Belajar dulu biar ga bego**!")
   
   is_admin = False
   try:
@@ -63,10 +63,10 @@ async def mentionall(event):
     ):
       is_admin = True
   if not is_admin:
-    return await event.respond("**Lu Bukan Admin Ngentod Ngapain Mau Tag All**")
+    return await event.respond("**Lu Bukan Admin tolol gua gban juga lo ngetod**")
   
   if event.pattern_match.group(1) and event.is_reply:
-    return await event.respond("**Minimal Kasih Text/Pesan Lah Kontol!**")
+    return await event.respond("**Minimal Kasih Text/Pesan Lah jembut lu!**")
   elif event.pattern_match.group(1):
     mode = "teks_on_tempel"
     msg = event.pattern_match.group(1)
@@ -74,9 +74,9 @@ async def mentionall(event):
     mode = "teks_on_balas"
     msg = await event.get_reply_message()
     if msg == None:
-        return await event.respond("**Si Tolol Di Suruh Kasih Text/Pesan Batu Bet Kalo Di Bilangin**")
+        return await event.respond("**Si Tolol Di Suruh Kasih Text/Pesan GOBLOK LO YA NJINK?**")
   else:
-    return await event.respond("**Si Tolol Di Suruh Kasih Text/Pesan Batu Bet Kalo Di Bilangin**")
+    return await event.respond("**Si Tolol Di Suruh Kasih Text/Pesan GOBLOK LO YA NJINK?**")
   
   spam_chats.append(chat_id)
   usrnum = 0
@@ -103,13 +103,13 @@ async def mentionall(event):
 @kntl.on(events.NewMessage(pattern="^/cancel$"))
 async def cancel_spam(event):
   if not event.chat_id in spam_chats:
-    return await event.respond('**Lu Ngapain? Dasar Idiot, Orang Ga Ada Tagall**')
+    return await event.respond('**Lu Ngapain? NYAWIT LO?, Orang Tagall aja gada blok!!**')
   else:
     try:
       spam_chats.remove(event.chat_id)
     except:
       pass
-    return await event.respond('**Iya Bang Gua Stopin**')
+    return await event.respond('**SELESAI NIH NJINK!!**')
 
 
 
