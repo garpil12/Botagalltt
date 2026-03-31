@@ -1,10 +1,19 @@
-import os, logging, asyncio
-from telethon import Button
-from telethon import TelegramClient, events
-from telethon.tl.types import ChannelParticipantAdmin
-from telethon.tl.types import ChannelParticipantCreator
+import os
+import logging
+import asyncio
+import random
+import time
+import datetime
+import aiofiles
+import psutil
+import json
+import io
+import welcome
+import zipfile
+from telethon import Button, TelegramClient, events
+from telethon.tl.types import ChannelParticipantAdmin, ChannelParticipantCreator
 from telethon.tl.functions.channels import GetParticipantRequest
-from telethon.errors import UserNotParticipantError
+from telethon.errors import UserNotParticipantError, ChatAdminRequiredError
 from config import *
 
 logging.basicConfig(
@@ -17,101 +26,791 @@ api_id = API_ID
 api_hash = API_HASH
 bot_token = BOT_TOKEN
 kntl = TelegramClient('garfield', api_id, api_hash).start(bot_token=bot_token)
-spam_chats = []
+welcome.register(kntl)
 
+START_TIME = time.time()
+WAJIB_JOIN_CHANNEL = 'storegarf'
+EMOJIS = list("🎬 🪕 🗿 🥶 🤪 💖 ❤️‍🔥 👀 🐵 🐨 🐷 🦝 🦊 🌭 🍔 🧇 🫘 🥜 🍳 🌭 🌯 🎸 🎭 👑 🏃 😈 🫣")
+spam_chats = {}
+message_ids = {}
+OWNER_IDS = [8209644174, 6361374151]
+GROUP_LOGS = -1003790298786
+# ================= FILE DATABASE =================
+USERS_FILE = "users.json"
+GROUPS_FILE = "groups.json"
+USER_HISTORY_FILE = "user_history.json"
 
+def load_json(file_path):
+    if os.path.exists(file_path):
+        with open(file_path, "r") as f:
+            return set(json.load(f))
+    return set()
+
+def save_json(file_path, data_set):
+    with open(file_path, "w") as f:
+        json.dump(list(data_set), f)
+
+def load_history(file_path):
+    if os.path.exists(file_path):
+        with open(file_path, "r") as f:
+            return json.load(f)
+    return {}
+
+def save_history(file_path, data_dict):
+    with open(file_path, "w") as f:
+        json.dump(data_dict, f)
+
+started_users = load_json(USERS_FILE)
+admin_groups = load_json(GROUPS_FILE)
+user_history = load_history(USER_HISTORY_FILE)
+
+# ================= HELPERS =================
+async def is_joined(user_id):
+    try:
+        await kntl(GetParticipantRequest(WAJIB_JOIN_CHANNEL, user_id))
+        return True
+    except UserNotParticipantError:
+        return False
+    except ChatAdminRequiredError:
+        return True
+    except:
+        return False
+
+async def add_group_to_db(chat_id):
+    if chat_id not in admin_groups:
+        try:
+            me = await kntl.get_me()
+            admins = await kntl.get_participants(chat_id, filter=ChannelParticipantAdmin)
+            if any(a.user_id == me.id for a in admins):
+                admin_groups.add(chat_id)
+                save_json(GROUPS_FILE, admin_groups)
+        except:
+            pass
+
+async def update_user_history(user):
+    user_history[str(user.id)] = {
+        "first_name": user.first_name or "",
+        "last_name": user.last_name or "",
+        "username": user.username or "",
+        "is_bot": user.bot
+    }
+    save_history(USER_HISTORY_FILE, user_history)
+
+# ================= START =================
 @kntl.on(events.NewMessage(pattern="^/start$"))
-async def help(event):
-  helptext = "**Halo 👋🏻!\n\nKenalin Nih, Gua Bot Tag All buat ngebantu lu tag member group lu njink!! support by @Brsik23.\n\nGua Siap Membantu Lu Dengan Mention Semua Anggota Di Group Anda**"
-  await event.reply(
-    helptext,
-    link_preview=False,
-    buttons=(
-      [
-        Button.url('Developer', 't.me/Brsik23'),
-      ],
-      [
-        Button.url('Support', 't.me/offcgarfield'),
-        Button.url('Channel', 't.me/storegarf'),
-      ],
+async def start_handler(event):
+    user = await event.get_sender()
+    await update_user_history(user)
+
+    user_id = event.sender_id
+    if user_id not in started_users:
+        started_users.add(user_id)
+        save_json(USERS_FILE, started_users)
+
+    if not event.is_private:
+        await add_group_to_db(event.chat_id)
+
+    banner = "https://i.ibb.co/mFMrG8Zr/garfield.jpg"
+    help_text = (
+        "**Halo 👋🏻!**\n\n"
+        "Gue Bot Tagall buat bantu lu mention member grup.\n"
+        "Support by @Brsik23"
     )
-  )
-  
-@kntl.on(events.NewMessage(pattern="^/all ?(.*)"))
-async def mentionall(event):
-  chat_id = event.chat_id
-  if event.is_private:
-    return await event.respond("**Belajar dulu biar ga bego**!")
-  
-  is_admin = False
-  try:
-    partici_ = await kntl(GetParticipantRequest(
-      event.chat_id,
-      event.sender_id
-    ))
-  except UserNotParticipantError:
-    is_admin = False
-  else:
-    if (
-      isinstance(
-        partici_.participant,
-        (
-          ChannelParticipantAdmin,
-          ChannelParticipantCreator
+    await event.reply(
+        help_text,
+        file=banner,
+        link_preview=False,
+        buttons=[
+            [Button.url("Developer", "t.me/Brsik23")],
+            [Button.url("Support", "t.me/offcgarfield"), Button.url("Channel", f"https://t.me/{WAJIB_JOIN_CHANNEL}")]
+        ]
+    )
+
+# ================= HELP =================
+@kntl.on(events.NewMessage(pattern="^/help$"))
+async def help_handler(event):
+    help_msg = (
+        "**FITUR BOT DAN KEGUNAANNYA:**\n\n"
+        "/tagall & /all — Buat tag semua member grup\n"
+        "/ping — Cek bot hidup dan status VPS\n"
+        "/broadcast <pesan> — Kirim pesan ke semua user & grup (owner only)\n"
+        "/id — Cek user ID, bisa reply atau langsung\n"
+        "/ids — Ambil semua ID admin grup (admin only)\n"
+        "/idgc — Cek chat ID grup atau chat pribadi\n"
+        "/info — Lihat history user\n"
+        "/restore — Restore database (owner only)\n\n"
+
+        "**WELCOME SYSTEM:**\n"
+        "/welcome on/off — Aktifin / matiin welcome\n"
+        "/setwelcome — Reply foto/video + teks buat welcome\n"
+        "/resetwelcome — Reset ke default\n"
+        "/cleanwelcome on/off — Hapus welcome lama otomatis\n"
+        "/setbutton — Tambah tombol (2 kolom)\n"
+        "/clearbutton — Hapus semua tombol\n\n"
+
+        "**NOTE:**\n"
+        "• Support foto / video / gif\n"
+        "• Tombol auto 2 kolom\n"
+        "• VIP button kirim DM otomatis\n"
+        "• Welcome auto kehapus 2 menit"
+    )
+    await event.reply(help_msg)
+
+# ================= INFO USER TARGET =================
+@kntl.on(events.NewMessage(pattern=r"^/info(?:\s+(@?\w+))?"))
+async def info_handler(event):
+    username_input = event.pattern_match.group(1)
+
+    # Mode reply: ambil user dari message yang direply
+    if event.is_reply:
+        msg = await event.get_reply_message()
+        user = await msg.get_sender()
+
+    # Mode username: ambil user dari username yang diketik
+    elif username_input:
+        if username_input.startswith("@"):
+            username_input = username_input[1:]
+        try:
+            user = await kntl.get_entity(username_input)
+        except Exception:
+            return await event.reply(f"⚠️ User @{username_input} tidak ditemukan di Telegram.")
+
+    # Default: ambil sender sendiri
+    else:
+        user = await event.get_sender()
+
+    # Bikin "history" dummy dari info Telegram target saja
+    uid = str(user.id)
+    names_lines = [f"1. [{event.date.strftime('%d/%m/%y %H:%M:%S')}] {user.first_name or '-'}"]
+    usernames_lines = [f"1. [{event.date.strftime('%d/%m/%y %H:%M:%S')}] @{user.username or '-'}"]
+
+    # Format output
+    msg_out = (
+        f"✅ 👤 History for {uid}\n"
+        f"Nama: {user.first_name or '-'} {user.last_name or ''}\n"
+        f"Username: @{user.username or '-'}\n"
+        f"User ID: {uid}\n"
+        f"Is Bot: {user.bot}\n\n"
+        "Names\n" + "\n".join(names_lines) + "\n\n"
+        "Usernames\n" + "\n".join(usernames_lines)
+    )
+
+    await event.reply(msg_out)
+
+# ================= PING =================
+@kntl.on(events.NewMessage(pattern="^/ping$"))
+async def ping(event):
+    banner = "https://i.ibb.co/mFMrG8Zr/garfield.jpg"
+    start = time.time()
+    msg = await event.reply("`Pinging...`")
+    end = time.time()
+    ping_ms = round((end - start) * 1000)
+    uptime = int(time.time() - START_TIME)
+    h = uptime // 3600
+    m = (uptime % 3600) // 60
+    s = uptime % 60
+    cpu = psutil.cpu_percent()
+    ram = psutil.virtual_memory().percent
+    disk = psutil.disk_usage('/').percent
+    text = (
+        "**🏓 PONG!!**\n"
+        f"⚡ **Ping:** `{ping_ms} ms`\n\n"
+        "📊 **STATUS VPS**\n"
+        f"• **CPU:** {cpu}%\n"
+        f"• **RAM:** {ram}%\n"
+        f"• **Disk:** {disk}%\n"
+        f"⏳ **Uptime:** `{h}h {m}m {s}s`"
+    )
+    await msg.edit(text, file=banner)
+
+# ================= TAGALL =================
+BATCH_SIZE = 3
+WORKERS = 4
+DELAY = 0.6
+
+running_tagall = {}
+
+async def send_batch(chat_id, msg, user_list, emoji_list, mode, progress_msg=None, total_users=None):
+    full_msg = f"{msg}\n\n{' '.join(user_list)}\n{' '.join(emoji_list)}\n\n🛍 my store @storegarf"
+
+    try:
+        if mode == "tempel":
+            sent_msg = await kntl.send_message(chat_id, full_msg, buttons=[[Button.inline("STOP", b"stop_tagall")]])
+        else:
+            sent_msg = await msg.reply(full_msg, buttons=[[Button.inline("STOP", b"stop_tagall")]])
+
+        spam_chats.setdefault(f"messages_{chat_id}", []).append(sent_msg.id)
+        message_ids.setdefault(chat_id, []).append(sent_msg.id)
+
+    except FloodWaitError as e:
+        await asyncio.sleep(min(e.seconds, 10))
+    except:
+        pass
+
+    # ❗ jangan terlalu sering edit (biar ga lag)
+    if progress_msg and total_users is not None and random.random() > 0.8:
+        try:
+            await progress_msg.edit(f"⏱ Sedang tagall... {total_users}")
+        except:
+            pass
+
+
+# ================= WORKER =================
+async def worker(chat_id, msg, queue, mode, progress_msg, end_time):
+    while running_tagall.get(chat_id):
+
+        if end_time and time.time() > end_time:
+            break
+
+        batch = []
+        for _ in range(BATCH_SIZE):
+            try:
+                batch.append(queue.get_nowait())
+            except asyncio.QueueEmpty:
+                break
+
+        if not batch:
+            break
+
+        await send_batch(chat_id, msg, batch, ["🎯"] * len(batch), mode, progress_msg, len(batch))
+
+        await asyncio.sleep(DELAY)
+
+
+# ================= DURASI =================
+@kntl.on(events.CallbackQuery(pattern=b"durasi_(.*)"))
+async def pilih_durasi(event):
+    chat_id = event.chat_id
+    data = event.data.decode().split("_")[1]
+
+    setup = spam_chats.get(f"setup_{chat_id}")
+    if not setup:
+        return await event.answer("Session hilang!", alert=True)
+
+    msg = setup["msg"]
+    mode = setup["mode"]
+
+    durasi_map = {
+        "2": 120,
+        "5": 300,
+        "10": 600,
+        "30": 1800,
+        "60": 3600,
+        "unlimited": None
+    }
+
+    duration = durasi_map.get(data)
+
+    await event.edit(f"🚀 Tagall jalan {data} menit...")
+
+    # ambil user
+    users = []
+    async for u in kntl.iter_participants(chat_id):
+        if not u.bot and u.first_name:
+            users.append(f"[{u.first_name}](tg://user?id={u.id})")
+
+    queue = asyncio.Queue()
+    for u in users:
+        queue.put_nowait(u)
+
+    running_tagall[chat_id] = True
+    end_time = time.time() + duration if duration else None
+
+    progress_msg = await kntl.send_message(chat_id, "⏱ Mulai tagall...")
+
+    tasks = []
+    for _ in range(WORKERS):
+        tasks.append(asyncio.create_task(
+            worker(chat_id, msg, queue, mode, progress_msg, end_time)
+        ))
+
+    await asyncio.gather(*tasks)
+
+    running_tagall[chat_id] = False
+
+    await progress_msg.edit(f"✅ DONE tag {len(users)} user")
+
+
+# ================= STOP =================
+@kntl.on(events.CallbackQuery(data=b"stop_tagall"))
+async def stop_tagall_handler(event):
+    running_tagall[event.chat_id] = False
+    await event.answer("🛑 Tagall dihentikan!", alert=True)
+
+
+# ================= COMMAND =================
+@kntl.on(events.NewMessage(pattern="^/(all|tagall) ?(.*)"))
+async def tagall(event):
+    chat_id = event.chat_id
+    if event.is_private:
+        return await event.respond("Ini cuma buat grup, bukan chat pribadi.")
+
+    user = await event.get_sender()
+    await update_user_history(user)
+
+    if not await is_joined(event.sender_id):
+        return await event.respond(
+            f"Lo harus join dulu channel gua sat!! @{WAJIB_JOIN_CHANNEL}!",
+            buttons=[[Button.url("💌 Join Channel", f"https://t.me/{WAJIB_JOIN_CHANNEL}")]]
         )
-      )
-    ):
-      is_admin = True
-  if not is_admin:
-    return await event.respond("**Lu Bukan Admin tolol gua gban juga lo ngetod**")
-  
-  if event.pattern_match.group(1) and event.is_reply:
-    return await event.respond("**Minimal Kasih Text/Pesan Lah jembut lu!**")
-  elif event.pattern_match.group(1):
-    mode = "teks_on_tempel"
-    msg = event.pattern_match.group(1)
-  elif event.is_reply:
-    mode = "teks_on_balas"
+
+    try:
+        p = await kntl(GetParticipantRequest(chat_id, event.sender_id))
+        is_admin = isinstance(p.participant, (ChannelParticipantAdmin, ChannelParticipantCreator))
+    except:
+        is_admin = False
+
+    if not is_admin:
+        return await event.respond("Lu bukan admin grup!")
+
+    text_input = event.pattern_match.group(2)
+    if text_input:
+        mode = "tempel"
+        msg = text_input
+    elif event.is_reply:
+        mode = "balas"
+        msg = await event.get_reply_message()
+    else:
+        return await event.respond("Kasih teks dulu goblok Lo!")
+
+    buttons_durasi = [
+        [Button.inline("2 menit", b"durasi_2"), Button.inline("5 menit", b"durasi_5")],
+        [Button.inline("10 menit", b"durasi_10"), Button.inline("30 menit", b"durasi_30")],
+        [Button.inline("60 menit", b"durasi_60"), Button.inline("Unlimited", b"durasi_unlimited")]
+    ]
+
+    menu_msg = await event.respond("Pilih durasi Tagall:", buttons=buttons_durasi)
+
+    message_ids.setdefault(chat_id, []).append(menu_msg.id)
+    spam_chats[f"setup_{chat_id}"] = {"msg": msg, "mode": mode}
+    spam_chats[f"durasi_{chat_id}"] = False
+
+# ================= CALLBACK DURASI =================
+@kntl.on(events.CallbackQuery(pattern=b"durasi_"))
+async def durasi_handler(event):
+    chat_id = event.chat_id
+    if spam_chats.get(f"durasi_{chat_id}"):
+        return await event.answer("Durasi sudah dipilih, tunggu sampai tagall selesai ✅", alert=True)
+
+    data = event.data.decode()
+    key = data.split("_")[1]
+    durasi_map = {"2":120,"5":300,"10":600,"30":1800,"60":3600,"unlimited":None}
+    durasi = durasi_map.get(key)
+    spam_chats[f"durasi_{chat_id}"] = True
+
+    try:
+        await event.edit(event.message.text, buttons=[])
+    except:
+        pass
+    await event.answer(f"Bot jalan {key} menit ✅" if durasi else "Bot jalan unlimited ✅")
+    await asyncio.sleep(1)
+
+    setup = spam_chats.get(f"setup_{chat_id}")
+    if not setup:
+        return await event.edit("Gagal menemukan setup Tagall")
+
+    msg = setup["msg"]
+    mode = setup["mode"]
+    spam_chats[chat_id] = True
+    spam_chats[f"messages_{chat_id}"] = []
+
+    start_time = time.time()
+    batch_size = 5
+    max_users = 10000 if key == "unlimited" else None
+    total_users = 0
+    user_lines = []
+    emoji_lines = []
+
+    # kirim pesan progress awal
+    progress_msg = await event.respond("⏱ Sedang tagall... Total user ditag: 0")
+    message_ids.setdefault(chat_id, []).append(progress_msg.id)
+
+    async for usr in kntl.iter_participants(chat_id):
+        if not spam_chats.get(chat_id):
+            break
+        await update_user_history(usr)
+
+        user_lines.append(f"[{usr.first_name}](tg://user?id={usr.id})")
+        emoji_lines.append(random.choice(EMOJIS))
+        total_users += 1
+
+        if len(user_lines) == batch_size:
+            await send_batch(chat_id, msg, user_lines, emoji_lines, mode, progress_msg, total_users)
+            user_lines = []
+            emoji_lines = []
+            await asyncio.sleep(2)
+
+        if durasi and (time.time() - start_time) >= durasi:
+            break
+        if max_users and total_users >= max_users:
+            await progress_msg.edit(f"✅ Tagall berhenti, sudah mencapai limit {max_users} user.")
+            break
+
+    if user_lines and spam_chats.get(chat_id):
+        await send_batch(chat_id, msg, user_lines, emoji_lines, mode, progress_msg, total_users)
+
+    # ================= PESAN AKHIR PROGRESS =================
+    if durasi and (time.time() - start_time) >= durasi:
+        await progress_msg.edit(f"✅ Tagall selesai sesuai durasi {key} menit. Total user ditag: {total_users}")
+    elif max_users and total_users >= max_users:
+        await progress_msg.edit(f"✅ Tagall berhenti karena cap {max_users} user tercapai. Total user ditag: {total_users}")
+    else:
+        await progress_msg.edit(f"✅ Tagall selesai. Total user ditag: {total_users}")
+
+    # =============== PESAN PENUTUP DENGAN CLEAR ===============
+    selesai_msg = await kntl.send_message(
+        chat_id,
+        f"🐾 𝐆𝐀𝐑𝐅𝐈𝐄𝐋𝐃 𝐓𝐀𝐆𝐀𝐋𝐋 𝐁𝐎𝐓:\n"
+        f"✅ Tagall selesai sesuai durasi {key} menit.\n"
+        f"Total user ditag: {total_users}",
+        buttons=[[Button.inline("🧹 CLEAR TAGALL", b"clear_tagall")]]
+    )
+    message_ids.setdefault(chat_id, []).append(selesai_msg.id)
+
+# ================= CLEAR =================
+@kntl.on(events.CallbackQuery(data=b"clear_tagall"))
+async def clear_tagall(event):
+    chat_id = event.chat_id
+    msgs = message_ids.get(chat_id, [])
+    if not msgs:
+        return await event.answer("Tidak ada pesan tagall yang tersisa.", alert=True)
+
+    batch_size = 50
+    delay_per_batch = 0.5
+    for i in range(0, len(msgs), batch_size):
+        batch = msgs[i:i+batch_size]
+        try:
+            await kntl.delete_messages(chat_id, batch)
+        except:
+            pass
+        await asyncio.sleep(delay_per_batch)
+
+    message_ids[chat_id] = []
+    spam_chats[f"messages_{chat_id}"] = []
+    spam_chats[f"durasi_{chat_id}"] = False
+
+    await event.edit("✅ Semua pesan tagall & tombol sudah gua hapusin nyet!", buttons=[])
+    await event.answer("Selesai hapus semua pesan tagall.", alert=True)
+
+# =============== BROADCAST FULL MEDIA (USER + GROUP ADMIN) ===============
+
+broadcast_running = False
+MAX_CONCURRENT = 10
+UPDATE_INTERVAL = 2
+
+
+# ========= AMBIL LIST GRUP ADMIN =========
+async def get_admin_groups():
+    admin_groups = set()
+    async for dialog in kntl.iter_dialogs():
+        if dialog.is_group or dialog.is_channel:
+            try:
+                p = await kntl.get_permissions(dialog.id, 'me')
+                if p.is_admin:
+                    admin_groups.add(dialog.id)
+            except:
+                pass
+    return admin_groups
+
+
+# ========= KIRIM PESAN SINGLE =========
+async def send_single_safe(client, msg, target_id):
+    try:
+        if msg.media:
+            await client.send_file(
+                target_id,
+                msg.media,
+                caption=msg.message or ""
+            )
+        else:
+            await client.send_message(target_id, msg.message or "")
+
+        return True, None
+
+    except Exception as e:
+        return False, str(e)
+
+
+# ========= KIRIM ALBUM =========
+async def send_album_safe(client, album_list, target_id):
+    try:
+        media_files = []
+        for msg in album_list:
+            path = await msg.download_media()
+            media_files.append(path)
+
+        await client.send_file(
+            target_id,
+            media_files,
+            caption=album_list[0].message or "",
+            force_document=False
+        )
+        return True, None
+    except Exception as e:
+        return False, str(e)
+
+
+# ========= COMMAND /broadcast =========
+@kntl.on(events.NewMessage(pattern=r"^/broadcast(?: (.+))?$"))
+async def start_broadcast(event):
+    global broadcast_running
+
+    if event.sender_id not in OWNER_IDS:
+        return await event.reply("Lu siapa anjg? Command owner only.")
+
+    if broadcast_running:
+        return await event.reply("⚠️ Broadcast sedang berjalan, tunggu selesai.")
+
+    broadcast_running = True
+    arg = event.pattern_match.group(1)
+
+    # ambil sumber pesan
+    if arg:
+        class FakeMsg:
+            media = None
+            message = arg
+
+        source_msg = FakeMsg()
+        album = None
+
+    else:
+        if not event.is_reply:
+            broadcast_running = False
+            return await event.reply("Reply pesan atau tambahkan teks setelah /broadcast")
+
+        reply = await event.get_reply_message()
+
+        if reply.grouped_id:
+            msgs = await kntl.get_messages(reply.chat_id, ids=range(reply.id - 20, reply.id + 20))
+            album = sorted([m for m in msgs if m.grouped_id == reply.grouped_id], key=lambda x: x.id)
+            source_msg = None
+        else:
+            album = None
+            source_msg = reply
+
+    # ========= TARGET = USER START + GRUP ADMIN =========
+    admin_groups = await get_admin_groups()
+
+    targets = set(started_users) | admin_groups
+    total = len(targets)
+
+    progress = await event.reply(
+        f"📣 Broadcast Started\n"
+        f"Total: {total}\nCompleted: 0\nSuccess: 0\nFailed: 0"
+    )
+
+    semaphore = asyncio.Semaphore(MAX_CONCURRENT)
+    done = success = failed = 0
+    start_time = time.time()
+
+    log = await aiofiles.open("broadcast_log.txt", "w")
+
+    async def worker(uid):
+        nonlocal done, success, failed
+
+        async with semaphore:
+            if album:
+                ok, err = await send_album_safe(kntl, album, uid)
+            else:
+                ok, err = await send_single_safe(kntl, source_msg, uid)
+
+            done += 1
+
+            if ok:
+                success += 1
+            else:
+                failed += 1
+                await log.write(f"{uid} : {err}\n")
+
+    tasks = [worker(uid) for uid in targets]
+    last_update = time.time()
+
+    # update progress
+    for task in asyncio.as_completed(tasks):
+        await task
+
+        now = time.time()
+        if now - last_update >= UPDATE_INTERVAL:
+            try:
+                await progress.edit(
+                    f"📣 Broadcast Progress\n"
+                    f"Total: {total}\nCompleted: {done}\nSuccess: {success}\nFailed: {failed}"
+                )
+            except:
+                pass
+            last_update = now
+
+    await log.close()
+    broadcast_running = False
+
+    elapsed = int(time.time() - start_time)
+
+    if failed == 0:
+        await progress.edit(
+            f"✅ Broadcast Completed in {elapsed}s\n"
+            f"Total: {total}\nSuccess: {success}\nFailed: {failed}"
+        )
+    else:
+        await event.reply(
+            file="broadcast_log.txt",
+            message=(
+                f"✅ Broadcast Completed in {elapsed}s\n"
+                f"Total: {total}\nSuccess: {success}\nFailed: {failed}"
+            )
+        )
+
+# ================= CEK USER / REPLY =================
+@kntl.on(events.NewMessage(pattern="^/ids$"))
+async def all_ids(event):
+    chat_id = event.chat_id
+
+    if event.is_private:
+        return await event.reply("Perintah ini hanya untuk grup!")
+
+    # cek admin pengirim
+    try:
+        p = await kntl(GetParticipantRequest(chat_id, event.sender_id))
+        is_admin = getattr(p.participant, 'admin_rights', None) is not None or getattr(p.participant, 'creator', False)
+    except Exception as e:
+        print(f"[ERROR] cek admin: {e}")
+        return await event.reply("Gagal cek admin. Pastikan bot admin di grup!")
+
+    if not is_admin:
+        return await event.reply("Hanya admin grup yang bisa pakai perintah ini!")
+
+    members = []
+    try:
+        async for usr in kntl.iter_participants(chat_id):
+            participant = getattr(usr, 'participant', None)
+            if participant and (getattr(participant, 'admin_rights', None) or getattr(participant, 'creator', False)):
+                members.append({
+                    "name": usr.first_name or "-",
+                    "username": usr.username or "-",
+                    "id": usr.id
+                })
+    except Exception as e:
+        print(f"[ERROR] iter_participants: {e}")
+        return await event.reply(f"Gagal ambil daftar admin: {e}")
+
+    if members:
+        chunk_size = 20
+        for i in range(0, len(members), chunk_size):
+            msg_lines = []
+            for idx, m in enumerate(members[i:i+chunk_size], start=i+1):
+                msg_lines.append(
+                    f"{idx}. Name     : [{m['name']}](tg://user?id={m['id']})\n"
+                    f"   Username : [@{m['username']}](tg://user?id={m['id']})\n"
+                    f"   User ID  : {m['id']}"
+                )
+            await event.reply("\n\n".join(msg_lines), parse_mode="md")
+    else:
+        await event.reply("Tidak ada admin di grup ini.")
+
+# ================= CEK CHAT ID =================
+@kntl.on(events.NewMessage(pattern="^/idgc$"))
+async def group_id(event):
+    if event.is_private:
+        await event.reply(f"Ini chat pribadi. Chat ID: `{event.chat_id}`")
+    else:
+        await event.reply(
+            f"**Info Grup:**\n"
+            f"• Chat Name: { (await event.get_chat()).title }\n"
+            f"• Chat ID: `{event.chat_id}`"
+        )
+
+# ================= BACKUP HARIAN =================
+async def daily_backup():
+    while True:
+        now = time.localtime()
+        seconds_until_midnight = ((24 - now.tm_hour - 1) * 3600) + ((60 - now.tm_min - 1) * 60) + (60 - now.tm_sec)
+        await asyncio.sleep(seconds_until_midnight)
+
+        mem_zip = io.BytesIO()
+        with zipfile.ZipFile(mem_zip, 'w') as zf:
+            for file in [USERS_FILE, GROUPS_FILE, USER_HISTORY_FILE]:
+                if os.path.exists(file):
+                    zf.write(file)
+        mem_zip.seek(0)
+
+        try:
+            await kntl.send_file(GROUP_LOGS, mem_zip, caption="📦 Backup Harian DB")
+        except Exception as e:
+            print("Gagal kirim backup:", e)
+
+        await asyncio.sleep(60)
+
+# ================= STARTUP LOG =================
+async def send_startup_log():
+    uptime = int(time.time() - START_TIME)
+    h = uptime // 3600
+    m = (uptime % 3600) // 60
+    s = uptime % 60
+    text = (
+        f"🚀 Bot Start\n"
+        f"⏱ Uptime: `{h}h {m}m {s}s`\n"
+        f"✅ Sukses Installing DB\n"
+        f"• Total User: {len(started_users)}\n"
+        f"• Total Grup: {len(admin_groups)}"
+    )
+    try:
+        await kntl.send_message(GROUP_LOGS, text)
+    except Exception as e:
+        print("Gagal kirim startup log:", e)
+
+# ================= RESTORE DARI FILE ZIP =================
+@kntl.on(events.NewMessage(pattern="^/restore$"))
+async def restore_db(event):
+    if event.sender_id not in OWNER_IDS:
+        return await event.reply("Lu siapa anjg? Owner only.")
+
+    if not event.is_reply or not event.message.reply_to_msg_id:
+        return await event.reply("⚠️ Reply file ZIP backup dulu.")
+
     msg = await event.get_reply_message()
-    if msg == None:
-        return await event.respond("**Si Tolol Di Suruh Kasih Text/Pesan GOBLOK LO YA NJINK?**")
-  else:
-    return await event.respond("**Si Tolol Di Suruh Kasih Text/Pesan GOBLOK LO YA NJINK?**")
-  
-  spam_chats.append(chat_id)
-  usrnum = 0
-  usrtxt = ''
-  async for usr in kntl.iter_participants(chat_id):
-    if not chat_id in spam_chats:
-      break
-    usrnum += 1
-    usrtxt += f"🀄︎ [{usr.first_name}](tg://user?id={usr.id})\n"
-    if usrnum == 5:
-      if mode == "teks_on_tempel":
-        txt = f"{msg}\n\n{usrtxt}"
-        await kntl.send_message(chat_id, txt)
-      elif mode == "teks_on_balas":
-        await msg.reply(usrtxt)
-      await asyncio.sleep(2)
-      usrnum = 0
-      usrtxt = ''
-  try:
-    spam_chats.remove(chat_id)
-  except:
+    if not msg.file or not msg.file.name.endswith(".zip"):
+        return await event.reply("⚠️ File harus .zip backup database!")
+
+    mem_zip = io.BytesIO()
+    await msg.download_media(mem_zip)
+    mem_zip.seek(0)
+
+    # Extract file JSON dari ZIP
+    missing_files = []
+    with zipfile.ZipFile(mem_zip, 'r') as zf:
+        for file in [USERS_FILE, GROUPS_FILE, USER_HISTORY_FILE]:
+            try:
+                zf.extract(file, path=".")  # pastikan extract di folder sekarang
+            except KeyError:
+                missing_files.append(file)
+
+    # Reload database ke memory
+    global started_users, admin_groups, user_history
+    started_users = load_json(USERS_FILE)
+    admin_groups = load_json(GROUPS_FILE)
+    user_history = load_history(USER_HISTORY_FILE)
+
+    if missing_files:
+        await event.reply(f"⚠️ Beberapa file tidak ada di ZIP: {', '.join(missing_files)}\n✅ Restore yang lain berhasil!")
+    else:
+        await event.reply("✅ Restore database berhasil!")
+
+# ================= MAIN BOT =================
+async def main():
+    # Kirim startup log
+    await send_startup_log()
+    # Jalankan backup harian secara paralel
+    asyncio.create_task(daily_backup())
+    # Jalankan bot
+    print("Bot sudah online!")
+    await kntl.run_until_disconnected()
+
+# ================= JALANKAN BOT =================
+print("BOT AKTIF")
+import asyncio
+
+loop = asyncio.get_event_loop()
+try:
+    loop.run_until_complete(main())
+except KeyboardInterrupt:
     pass
 
-@kntl.on(events.NewMessage(pattern="^/cancel$"))
-async def cancel_spam(event):
-  if not event.chat_id in spam_chats:
-    return await event.respond('**Lu Ngapain? NYAWIT LO?, Orang Tagall aja gada blok!!**')
-  else:
-    try:
-      spam_chats.remove(event.chat_id)
-    except:
-      pass
-    return await event.respond('**SELESAI NIH NJINK!!**')
-
-
-
-print("BOT AKTIF")
-kntl.run_until_disconnected()

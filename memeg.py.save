@@ -1,0 +1,133 @@
+import os, logging, asyncio, random
+from telethon import Button, TelegramClient, events
+from telethon.tl.types import ChannelParticipantAdmin, ChannelParticipantCreator
+from telethon.tl.functions.channels import GetParticipantRequest
+from telethon.errors import UserNotParticipantError, ChatAdminRequiredError
+from config import *
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(name)s - [%(levelname)s] - %(message)s'
+)
+LOGGER = logging.getLogger(__name__)
+
+api_id = API_ID
+api_hash = API_HASH
+bot_token = BOT_TOKEN
+kntl = TelegramClient('garfield', api_id, api_hash).start(bot_token=bot_token)
+
+spam_chats = {}
+WAJIB_JOIN_CHANNEL = 'storegarf'
+
+# 200+ emoji random
+EMOJIS = list("🀄︎🌟✨💫🔥💌🎯🌈🎉🎵🚀🛸🛶🛳⛵🛴🛵🏎🚗🚕🚙🚓🚑🚒🚐🚌🚎🏍🛹🛺🚜🦽🦼🚲🚁✈️🛩🛫🛬🎠🎡🎢🎪🎭🎨🎬🎤🎧🎼🎹🥁🎷🎺🎸🪕🪗🎻🛎🧨🎈🎉🎊🎏🎀🎁🛍🛒")
+
+# Cek join channel
+async def is_joined(user_id):
+    try:
+        await kntl(GetParticipantRequest(WAJIB_JOIN_CHANNEL, user_id))
+        return True
+    except UserNotParticipantError:
+        return False
+    except ChatAdminRequiredError:
+        return True
+    except:
+        return False
+
+# START
+@kntl.on(events.NewMessage(pattern="^/start$"))
+async def help(event):
+    helptext = ("**Halo 👋🏻!\n\n"
+                "Kenalin Nih, Gua Bot Tag All buat ngebantu lu tag member group lu njink!! support by @Brsik23.\n\n"
+                "Gua Siap Membantu Lu Dengan Mention Semua Anggota Di Group Anda**")
+    await event.reply(
+        helptext,
+        link_preview=False,
+        buttons=(
+            [Button.url('Developer', 't.me/Brsik23')],
+            [Button.url('Support', 't.me/offcgarfield'),
+             Button.url('Channel', f'https://t.me/{WAJIB_JOIN_CHANNEL}')],
+        )
+    )
+
+# ALL
+@kntl.on(events.NewMessage(pattern="^/all ?(.*)"))
+async def mentionall(event):
+    chat_id = event.chat_id
+    if event.is_private:
+        return await event.respond("**Belajar dulu biar ga bego**!")
+
+    # wajib join
+    if not await is_joined(event.sender_id):
+        return await event.respond(
+            f"**Lo harus join dulu channel [{WAJIB_JOIN_CHANNEL}](https://t.me/{WAJIB_JOIN_CHANNEL}) sebelum bisa pakai tagall!**",
+            link_preview=False,
+            buttons=[[Button.url("💌 Join Channel Wajib", f"https://t.me/{WAJIB_JOIN_CHANNEL}")]]
+        )
+
+    # cek admin
+    try:
+        partici_ = await kntl(GetParticipantRequest(chat_id, event.sender_id))
+        is_admin = isinstance(partici_.participant, (ChannelParticipantAdmin, ChannelParticipantCreator))
+    except:
+        is_admin = False
+
+    if not is_admin:
+        return await event.respond("**Lu Bukan Admin tolol gua gban juga lo ngetod**")
+
+    # mode pesan
+    if event.pattern_match.group(1) and event.is_reply:
+        return await event.respond("**Minimal Kasih Text/Pesan Lah jembut lu!**")
+    elif event.pattern_match.group(1):
+        mode = "teks_on_tempel"
+        msg = event.pattern_match.group(1)
+    elif event.is_reply:
+        mode = "teks_on_balas"
+        msg = await event.get_reply_message()
+        if msg is None:
+            return await event.respond("**Si Tolol Di Suruh Kasih Text/Pesan GOBLOK LO YA NJINK?**")
+    else:
+        return await event.respond("**Si Tolol Di Suruh Kasih Text/Pesan GOBLOK LO YA NJINK?**")
+
+    spam_chats[chat_id] = True
+    txt_lines = []
+
+    async for usr in kntl.iter_participants(chat_id):
+        if not spam_chats.get(chat_id):
+            break
+        emoji = random.choice(EMOJIS)
+        txt_lines.append(f"{e
+moji} [{usr.first_name}](tg://user?id={usr.id})")
+        if len(txt_lines) == 5:
+            txt = "\n".join(txt_lines)
+            if mode == "teks_on_tempel":
+                full_msg = f"{msg}\n\n{txt}\n\n🛍 my store @{WAJIB_JOIN_CHANNEL} 🛒"
+                await kntl.send_message(chat_id, full_msg, buttons=[[Button.inline("Berhenti Tagall", b"stop_tagall")]])
+            else:
+                full_msg = f"{txt}\n\n🛍 my store @{WAJIB_JOIN_CHANNEL} 🛒"
+                await msg.reply(full_msg, buttons=[[Button.inline("Berhenti Tagall", b"stop_tagall")]])
+            txt_lines = []
+            await asyncio.sleep(2)
+
+    # kirim sisa user
+    if txt_lines and spam_chats.get(chat_id):
+        txt = "\n".join(txt_lines)
+        if mode == "teks_on_tempel":
+            full_msg = f"{msg}\n\n{txt}\n\n🛍 my store @{WAJIB_JOIN_CHANNEL} 🛒"
+            await kntl.send_message(chat_id, full_msg, buttons=[[Button.inline("Berhenti Tagall", b"stop_tagall")]])
+        else:
+            full_msg = f"{txt}\n\n🛍 my store @{WAJIB_JOIN_CHANNEL} 🛒"
+            await msg.reply(full_msg, buttons=[[Button.inline("Berhenti Tagall", b"stop_tagall")]])
+
+# Stop Tagall
+@kntl.on(events.CallbackQuery(data=b"stop_tagall"))
+async def stop_tagall(event):
+    chat_id = event.chat_id
+    if spam_chats.get(chat_id):
+        spam_chats[chat_id] = False
+        await event.edit("**STOP! Tagall dihentikan ✅**")
+    else:
+        await event.answer("Tagall sudah berhenti sebelumnya", alert=True)
+
+print("BOT AKTIF")
+kntl.run_until_disconnected()
