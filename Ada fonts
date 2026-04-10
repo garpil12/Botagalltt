@@ -151,30 +151,46 @@ async def start_handler(event):
 @kntl.on(events.NewMessage(pattern="^/help$"))
 async def help_handler(event):
     help_msg = (
-        "**FITUR BOT DAN KEGUNAANNYA:**\n\n"
-        "/tagall & /all — Buat tag semua member grup\n"
-        "/ping — Cek bot hidup dan status VPS\n"
-        "/broadcast <pesan> — Kirim pesan ke semua user & grup (owner only)\n"
-        "/id — Cek user ID, bisa reply atau langsung\n"
-        "/ids — Ambil semua ID admin grup (admin only)\n"
-        "/idgc — Cek chat ID grup atau chat pribadi\n"
-        "/info — Lihat history user\n"
-        "/restore — Restore database (owner only)\n\n"
+        "╭━━━〔 ⚡ GARFIELD MONTION ⚡ 〕━━━╮\n\n"
 
-        "**WELCOME SYSTEM:**\n"
-        "/welcome on/off — Aktifin / matiin welcome\n"
-        "/setwelcome — Reply foto/video + teks buat welcome\n"
-        "/resetwelcome — Reset ke default\n"
-        "/cleanwelcome on/off — Hapus welcome lama otomatis\n"
-        "/setbutton — Tambah tombol (2 kolom)\n"
-        "/clearbutton — Hapus semua tombol\n\n"
+        "👥 **GROUP MENU**\n"
+        "┣➤ `/tagall` / `/all`\n"
+        "┣➤ `/idgc`\n"
+        "┣➤ `/ids`\n"
+        "┣➤ `/id`\n"
+        "┗➤ `/info`\n\n"
 
-        "**NOTE:**\n"
-        "• Support foto / video / gif\n"
-        "• Tombol auto 2 kolom\n"
-        "• VIP button kirim DM otomatis\n"
-        "• Welcome auto kehapus 2 menit"
+        "📢 **BROADCAST**\n"
+        "┣➤ `/broadcast <pesan>`\n"
+        "┗➤ Kirim ke semua user & grup (owner only)\n\n"
+
+        "⚙️ **SYSTEM**\n"
+        "┣➤ `/ping`\n"
+        "┗➤ `/restore`\n\n"
+
+        "🎉 **WELCOME SYSTEM**\n"
+        "┣➤ `/welcome on/off`\n"
+        "┣➤ `/setwelcome`\n"
+        "┣➤ `/resetwelcome`\n"
+        "┣➤ `/cleanwelcome on/off`\n"
+        "┣➤ `/setbutton`\n"
+        "┗➤ `/clearbutton`\n\n"
+
+        "🔤 **FONT MENU**\n"
+        "┣➤ `/font <text>`\n"
+        "┣➤ Reply pesan + `/font`\n"
+        "┣➤ Random font\n"
+        "┗➤ Banyak pilihan font keren\n\n"
+
+        "💡 **NOTE**\n"
+        "┣➤ Support foto / video / gif\n"
+        "┣➤ Tombol auto rapi\n"
+        "┣➤ VIP button kirim DM\n"
+        "┗➤ Welcome auto hapus 2 menit\n\n"
+
+        "╰━━━━━━━━━━━━━━━━━━━━━━━╯"
     )
+
     await event.reply(help_msg)
 
 # ================= INFO USER TARGET =================
