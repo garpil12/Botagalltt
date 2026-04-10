@@ -266,9 +266,13 @@ WORKERS = 3            # worker dikurang biar gak ngebut banget
 DELAY = 0.8            # delay biar smooth & gak flood
 
 running_tagall = {}
-
+GLOBAL_STOP = False
 # ================= SEND BATCH =================
 async def send_batch(chat_id, msg, user_list, emoji_list, mode, progress_msg=None, total_users=None):
+
+    # 🔴 CEK STOP (WAJIB PALING ATAS)
+    if not running_tagall.get(chat_id) or GLOBAL_STOP:
+        return
 
     mention_users = " ".join(user_list)
 
@@ -281,6 +285,10 @@ async def send_batch(chat_id, msg, user_list, emoji_list, mode, progress_msg=Non
     )
 
     try:
+        # 🔴 CEK LAGI SEBELUM NGIRIM (BIAR SUPER AMAN)
+        if not running_tagall.get(chat_id) or GLOBAL_STOP:
+            return
+
         if mode == "tempel":
             sent_msg = await kntl.send_message(
                 chat_id,
@@ -301,6 +309,10 @@ async def send_batch(chat_id, msg, user_list, emoji_list, mode, progress_msg=Non
     except Exception:
         pass
 
+    # 🔴 CEK LAGI SEBELUM PROGRESS
+    if not running_tagall.get(chat_id) or GLOBAL_STOP:
+        return
+
     # progress update (jarang biar gak lag)
     if progress_msg and total_users and random.random() > 0.7:
         try:
@@ -312,7 +324,11 @@ async def send_batch(chat_id, msg, user_list, emoji_list, mode, progress_msg=Non
 # ================= WORKER =================
 async def worker(chat_id, msg, queue, mode, progress_msg, end_time):
 
-    while running_tagall.get(chat_id):
+    while True:
+
+        # 🔥 CEK STOP GLOBAL / CHAT
+        if not running_tagall.get(chat_id) or GLOBAL_STOP:
+            break
 
         if end_time and time.time() > end_time:
             break
@@ -320,6 +336,9 @@ async def worker(chat_id, msg, queue, mode, progress_msg, end_time):
         batch = []
 
         for _ in range(BATCH_SIZE):
+            if not running_tagall.get(chat_id) or GLOBAL_STOP:
+                return  # 🔥 langsung mati
+
             try:
                 batch.append(queue.get_nowait())
             except asyncio.QueueEmpty:
@@ -397,9 +416,19 @@ async def pilih_durasi(event):
 # ================= STOP =================
 @kntl.on(events.CallbackQuery(data=b"stop_tagall"))
 async def stop_tagall_handler(event):
-    running_tagall[event.chat_id] = False
+    global GLOBAL_STOP
+
+    chat_id = event.chat_id
+
+    running_tagall[chat_id] = False
+    GLOBAL_STOP = True  # 🔥 stop semua worker
+
     await event.answer("🛑 Tagall dihentikan!", alert=True)
 
+    try:
+        await event.edit("🛑 TAGALL DIHENTIKAN")
+    except:
+        pass
 
 # ================= COMMAND =================
 @kntl.on(events.NewMessage(pattern="^/(all|tagall) ?(.*)"))
@@ -447,6 +476,7 @@ async def tagall(event):
     message_ids.setdefault(chat_id, []).append(menu_msg.id)
     spam_chats[f"setup_{chat_id}"] = {"msg": msg, "mode": mode}
     spam_chats[f"durasi_{chat_id}"] = False
+
 
 # ================= CALLBACK DURASI =================
 @kntl.on(events.CallbackQuery(pattern=b"durasi_"))
