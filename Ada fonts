@@ -260,46 +260,65 @@ async def ping(event):
     )
     await msg.edit(text, file=banner)
 
-# ================= TAGALL =================
-BATCH_SIZE = 3
-WORKERS = 4
-DELAY = 0.6
+# ================= TAGALL CONFIG =================
+BATCH_SIZE = 5          # lebih banyak per kirim biar cepat tapi aman
+WORKERS = 3            # worker dikurang biar gak ngebut banget
+DELAY = 0.8            # delay biar smooth & gak flood
 
 running_tagall = {}
 
+# ================= SEND BATCH =================
 async def send_batch(chat_id, msg, user_list, emoji_list, mode, progress_msg=None, total_users=None):
-    full_msg = f"{msg}\n\n{' '.join(user_list)}\n{' '.join(emoji_list)}\n\n🛍 my store @storegarf"
+
+    mention_users = " ".join(user_list)
+
+    full_msg = (
+        "✦ BOT MONTION ✦\n\n"
+        f"{msg}\n\n"
+        f"{mention_users}\n\n"
+        "🛍️ @storegarf\n\n"
+        "✦🌑✦"
+    )
 
     try:
         if mode == "tempel":
-            sent_msg = await kntl.send_message(chat_id, full_msg, buttons=[[Button.inline("STOP", b"stop_tagall")]])
+            sent_msg = await kntl.send_message(
+                chat_id,
+                full_msg,
+                buttons=[[Button.inline("⛔ STOP", b"stop_tagall")]]
+            )
         else:
-            sent_msg = await msg.reply(full_msg, buttons=[[Button.inline("STOP", b"stop_tagall")]])
+            sent_msg = await msg.reply(
+                full_msg,
+                buttons=[[Button.inline("⛔ STOP", b"stop_tagall")]]
+            )
 
         spam_chats.setdefault(f"messages_{chat_id}", []).append(sent_msg.id)
         message_ids.setdefault(chat_id, []).append(sent_msg.id)
 
     except FloodWaitError as e:
-        await asyncio.sleep(min(e.seconds, 10))
-    except:
+        await asyncio.sleep(e.seconds + 2)
+    except Exception:
         pass
 
-    # ❗ jangan terlalu sering edit (biar ga lag)
-    if progress_msg and total_users is not None and random.random() > 0.8:
+    # progress update (jarang biar gak lag)
+    if progress_msg and total_users and random.random() > 0.7:
         try:
-            await progress_msg.edit(f"⏱ Sedang tagall... {total_users}")
+            await progress_msg.edit(f"⏱ Tagging berjalan... ({total_users})")
         except:
             pass
 
 
 # ================= WORKER =================
 async def worker(chat_id, msg, queue, mode, progress_msg, end_time):
+
     while running_tagall.get(chat_id):
 
         if end_time and time.time() > end_time:
             break
 
         batch = []
+
         for _ in range(BATCH_SIZE):
             try:
                 batch.append(queue.get_nowait())
@@ -309,10 +328,17 @@ async def worker(chat_id, msg, queue, mode, progress_msg, end_time):
         if not batch:
             break
 
-        await send_batch(chat_id, msg, batch, ["🎯"] * len(batch), mode, progress_msg, len(batch))
+        await send_batch(
+            chat_id,
+            msg,
+            batch,
+            ["🎯"] * len(batch),
+            mode,
+            progress_msg,
+            len(batch)
+        )
 
         await asyncio.sleep(DELAY)
-
 
 # ================= DURASI =================
 @kntl.on(events.CallbackQuery(pattern=b"durasi_(.*)"))
