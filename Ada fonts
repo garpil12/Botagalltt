@@ -522,11 +522,11 @@ async def tagall(event):
     spam_chats[f"setup_{chat_id}"] = {"msg": msg, "mode": mode}
     spam_chats[f"durasi_{chat_id}"] = False
 
-
 # ================= CALLBACK DURASI =================
 @kntl.on(events.CallbackQuery(pattern=b"durasi_"))
 async def durasi_handler(event):
     chat_id = event.chat_id
+
     if spam_chats.get(f"durasi_{chat_id}"):
         return await event.answer("Durasi sudah dipilih, tunggu sampai tagall selesai ✅", alert=True)
 
@@ -534,12 +534,16 @@ async def durasi_handler(event):
     key = data.split("_")[1]
     durasi_map = {"2":120,"5":300,"10":600,"30":1800,"60":3600,"unlimited":None}
     durasi = durasi_map.get(key)
+
     spam_chats[f"durasi_{chat_id}"] = True
+    spam_chats[chat_id] = True
+    running_tagall[chat_id] = True  # 🔥 SYNC
 
     try:
         await event.edit(event.message.text, buttons=[])
     except:
         pass
+
     await event.answer(f"Bot jalan {key} menit ✅" if durasi else "Bot jalan unlimited ✅")
     await asyncio.sleep(1)
 
@@ -549,7 +553,6 @@ async def durasi_handler(event):
 
     msg = setup["msg"]
     mode = setup["mode"]
-    spam_chats[chat_id] = True
     spam_chats[f"messages_{chat_id}"] = []
 
     start_time = time.time()
@@ -559,13 +562,15 @@ async def durasi_handler(event):
     user_lines = []
     emoji_lines = []
 
-    # kirim pesan progress awal
     progress_msg = await event.respond("⏱ Sedang tagall... Total user ditag: 0")
     message_ids.setdefault(chat_id, []).append(progress_msg.id)
 
     async for usr in kntl.iter_participants(chat_id):
-        if not spam_chats.get(chat_id):
+
+        # 🔴 STOP GLOBAL
+        if not running_tagall.get(chat_id) or GLOBAL_STOP:
             break
+
         await update_user_history(usr)
 
         user_lines.append(f"[{usr.first_name}](tg://user?id={usr.id})")
@@ -576,18 +581,44 @@ async def durasi_handler(event):
             await send_batch(chat_id, msg, user_lines, emoji_lines, mode, progress_msg, total_users)
             user_lines = []
             emoji_lines = []
-            await asyncio.sleep(2)
+
+            # 🔥 DELAY BISA DIKILL
+            for _ in range(20):
+                if not running_tagall.get(chat_id) or GLOBAL_STOP:
+                    break
+                await asyncio.sleep(0.1)
 
         if durasi and (time.time() - start_time) >= durasi:
             break
+
         if max_users and total_users >= max_users:
             await progress_msg.edit(f"✅ Tagall berhenti, sudah mencapai limit {max_users} user.")
             break
 
-    if user_lines and spam_chats.get(chat_id):
+    # 🔥 SISA
+    if user_lines and running_tagall.get(chat_id):
         await send_batch(chat_id, msg, user_lines, emoji_lines, mode, progress_msg, total_users)
 
     # ================= PESAN AKHIR PROGRESS =================
+
+    # 🔴 PRIORITAS STOP (INI KUNCI FIX LO)
+    if not running_tagall.get(chat_id) or GLOBAL_STOP:
+
+        try:
+            await progress_msg.edit("🛑 Tagall dihentikan oleh user.")
+        except:
+            pass
+
+        selesai_msg = await kntl.send_message(
+            chat_id,
+            f"🛑 TAGALL DIHENTIKAN\nTotal user ditag: {total_users}",
+            buttons=[[Button.inline("🧹 CLEAR TAGALL", b"clear_tagall")]]
+        )
+
+        message_ids.setdefault(chat_id, []).append(selesai_msg.id)
+        return
+
+    # 🔵 NORMAL
     if durasi and (time.time() - start_time) >= durasi:
         await progress_msg.edit(f"✅ Tagall selesai sesuai durasi {key} menit. Total user ditag: {total_users}")
     elif max_users and total_users >= max_users:
@@ -603,18 +634,22 @@ async def durasi_handler(event):
         f"Total user ditag: {total_users}",
         buttons=[[Button.inline("🧹 CLEAR TAGALL", b"clear_tagall")]]
     )
+
     message_ids.setdefault(chat_id, []).append(selesai_msg.id)
+
 
 # ================= CLEAR =================
 @kntl.on(events.CallbackQuery(data=b"clear_tagall"))
 async def clear_tagall(event):
     chat_id = event.chat_id
     msgs = message_ids.get(chat_id, [])
+
     if not msgs:
         return await event.answer("Tidak ada pesan tagall yang tersisa.", alert=True)
 
     batch_size = 50
     delay_per_batch = 0.5
+
     for i in range(0, len(msgs), batch_size):
         batch = msgs[i:i+batch_size]
         try:
@@ -627,7 +662,11 @@ async def clear_tagall(event):
     spam_chats[f"messages_{chat_id}"] = []
     spam_chats[f"durasi_{chat_id}"] = False
 
-    await event.edit("✅ Semua pesan tagall & tombol sudah gua hapusin nyet!", buttons=[])
+    try:
+        await event.edit("✅ Semua pesan tagall & tombol sudah gua hapusin nyet!", buttons=[])
+    except:
+        pass
+
     await event.answer("Selesai hapus semua pesan tagall.", alert=True)
 
 # =============== BROADCAST FULL MEDIA (USER + GROUP ADMIN) ===============
