@@ -263,11 +263,10 @@ async def ping(event):
     )
     await msg.edit(text, file=banner)
 
-
 # ================= TAGALL =================
 BATCH_SIZE = 3
-WORKERS = 4
-DELAY = 0.6
+WORKERS = 3
+DELAY = 1
 
 running_tagall = {}
 
@@ -275,10 +274,13 @@ running_tagall = {}
 GLOBAL_STOP = False
 tagall_tasks = {}
 
+# 🔥 TAMBAHAN (ANTI SPAM)
+send_lock = asyncio.Lock()
+
+
 # ================= SEND BATCH =================
 async def send_batch(chat_id, msg, user_list, emoji_list, mode, progress_msg=None, total_users=None):
 
-    # 🔴 HARD STOP CHECK
     if GLOBAL_STOP or not running_tagall.get(chat_id):
         return
 
@@ -288,33 +290,40 @@ async def send_batch(chat_id, msg, user_list, emoji_list, mode, progress_msg=Non
         if GLOBAL_STOP or not running_tagall.get(chat_id):
             return
 
-        if mode == "tempel":
-            sent_msg = await kntl.send_message(
-                chat_id,
-                full_msg,
-                buttons=[[Button.inline("STOP", b"stop_tagall")]]
-            )
-        else:
-            sent_msg = await msg.reply(
-                full_msg,
-                buttons=[[Button.inline("STOP", b"stop_tagall")]]
-            )
+        # 🔥 LOCK BIAR GA NIMPA (INI KUNCI SMOOTH)
+        async with send_lock:
 
-        spam_chats.setdefault(f"messages_{chat_id}", []).append(sent_msg.id)
-        message_ids.setdefault(chat_id, []).append(sent_msg.id)
+            if mode == "tempel":
+                sent_msg = await kntl.send_message(
+                    chat_id,
+                    full_msg,
+                    buttons=[[Button.inline("STOP", b"stop_tagall")]]
+                )
+            else:
+                sent_msg = await msg.reply(
+                    full_msg,
+                    buttons=[[Button.inline("STOP", b"stop_tagall")]]
+                )
+
+            spam_chats.setdefault(f"messages_{chat_id}", []).append(sent_msg.id)
+            message_ids.setdefault(chat_id, []).append(sent_msg.id)
+
+            # 🔥 DELAY MINI (ANTI DERES)
+            await asyncio.sleep(random.uniform(1.2, 2.0))
 
     except FloodWaitError as e:
-        await asyncio.sleep(min(e.seconds, 10))
+        await asyncio.sleep(min(e.seconds + 2, 15))
     except:
         pass
 
-    # 🔴 STOP LAGI SEBELUM EDIT
     if GLOBAL_STOP or not running_tagall.get(chat_id):
         return
 
-    if progress_msg and total_users is not None and random.random() > 0.8:
+    # 🔥 KURANGIN EDIT (BIANG FLOOD)
+    if progress_msg and total_users is not None and random.random() > 0.95:
         try:
-            await progress_msg.edit(f"⏱ Sedang tagall... {total_users}")
+            async with send_lock:
+                await progress_msg.edit(f"⏱ Sedang tagall...")
         except:
             pass
 
@@ -332,7 +341,6 @@ async def worker(chat_id, msg, queue, mode, progress_msg, end_time):
 
             for _ in range(BATCH_SIZE):
 
-                # 🔴 HARD STOP DALAM LOOP
                 if GLOBAL_STOP or not running_tagall.get(chat_id):
                     return
 
@@ -354,19 +362,21 @@ async def worker(chat_id, msg, queue, mode, progress_msg, end_time):
                 len(batch)
             )
 
-            # 🔴 DELAY TAPI BISA DIKILL
-            for _ in range(int(DELAY * 10)):
+            # 🔥 DELAY SMOOTH (GA KAKU)
+            base_delay = DELAY + random.uniform(1.0, 2.0)
+
+            for _ in range(int(base_delay * 10)):
                 if GLOBAL_STOP or not running_tagall.get(chat_id):
                     return
                 await asyncio.sleep(0.1)
 
     except asyncio.CancelledError:
-        return  # 🔥 langsung mati tanpa error
+        return
 
 
-# ================= START TAGALL (WAJIB ADA INI) =================
+# ================= START TAGALL =================
 async def start_tagall(chat_id, msg, queue, mode, progress_msg=None, end_time=None):
-
+    
     global GLOBAL_STOP
     GLOBAL_STOP = False
     running_tagall[chat_id] = True
@@ -380,6 +390,10 @@ async def start_tagall(chat_id, msg, queue, mode, progress_msg=None, end_time=No
     tagall_tasks[chat_id] = tasks
 
     await asyncio.gather(*tasks, return_exceptions=True)
+
+    # 🔥 NOTIF SELESAI
+    if not GLOBAL_STOP:
+        await kntl.send_message(chat_id, "✅ Tagall selesai!")
 
 
 # ================= DURASI =================
