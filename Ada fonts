@@ -264,74 +264,57 @@ async def ping(event):
     await msg.edit(text, file=banner)
 
 
-# ================= TAGALL CONFIG =================
+# ================= TAGALL =================
 BATCH_SIZE = 3
-WORKERS = 2              # turunin dikit biar ga brutal
-DELAY = 1.8              # base delay
+WORKERS = 4
+DELAY = 0.6
 
 running_tagall = {}
-GLOBAL_STOP = False
 
-# 🔥 GLOBAL LOCK (ANTI TABRAKAN)
-send_lock = asyncio.Lock()
+# 🔥 GLOBAL CONTROL
+GLOBAL_STOP = False
+tagall_tasks = {}
 
 # ================= SEND BATCH =================
 async def send_batch(chat_id, msg, user_list, emoji_list, mode, progress_msg=None, total_users=None):
 
-    if not running_tagall.get(chat_id) or GLOBAL_STOP:
+    # 🔴 HARD STOP CHECK
+    if GLOBAL_STOP or not running_tagall.get(chat_id):
         return
 
-    mention_users = " ".join(user_list)
-
-    full_msg = (
-        "✦ BOT MONTION ✦\n\n"
-        f"{msg}\n\n"
-        f"{mention_users}\n\n"
-        "🛍️ @storegarf\n\n"
-        "✦🌑✦"
-    )
+    full_msg = f"{msg}\n\n{' '.join(user_list)}\n{' '.join(emoji_list)}\n\n🛍 my store @storegarf"
 
     try:
-        if not running_tagall.get(chat_id) or GLOBAL_STOP:
+        if GLOBAL_STOP or not running_tagall.get(chat_id):
             return
 
-        # 🔥 LOCK BIAR KIRIM 1-1 (ANTI FLOOD)
-        async with send_lock:
+        if mode == "tempel":
+            sent_msg = await kntl.send_message(
+                chat_id,
+                full_msg,
+                buttons=[[Button.inline("STOP", b"stop_tagall")]]
+            )
+        else:
+            sent_msg = await msg.reply(
+                full_msg,
+                buttons=[[Button.inline("STOP", b"stop_tagall")]]
+            )
 
-            if mode == "tempel":
-                sent_msg = await kntl.send_message(
-                    chat_id,
-                    full_msg,
-                    buttons=[[Button.inline("⛔ STOP", b"stop_tagall")]]
-                )
-            else:
-                sent_msg = await msg.reply(
-                    full_msg,
-                    buttons=[[Button.inline("⛔ STOP", b"stop_tagall")]]
-                )
-
-            spam_chats.setdefault(f"messages_{chat_id}", []).append(sent_msg.id)
-            message_ids.setdefault(chat_id, []).append(sent_msg.id)
-
-            # 🔥 delay kecil setelah kirim (penting banget)
-            await asyncio.sleep(random.uniform(1.2, 2.5))
+        spam_chats.setdefault(f"messages_{chat_id}", []).append(sent_msg.id)
+        message_ids.setdefault(chat_id, []).append(sent_msg.id)
 
     except FloodWaitError as e:
-        wait_time = e.seconds + random.randint(2, 6)
-        print(f"⚠️ FloodWait {wait_time}s")
-        await asyncio.sleep(wait_time)
+        await asyncio.sleep(min(e.seconds, 10))
+    except:
+        pass
 
-    except Exception as err:
-        print("ERROR SEND:", err)
-
-    if not running_tagall.get(chat_id) or GLOBAL_STOP:
+    # 🔴 STOP LAGI SEBELUM EDIT
+    if GLOBAL_STOP or not running_tagall.get(chat_id):
         return
 
-    # ❌ BATASI EDIT (BIAR GA FLOOD)
-    if progress_msg and total_users and random.random() > 0.9:
+    if progress_msg and total_users is not None and random.random() > 0.8:
         try:
-            async with send_lock:
-                await progress_msg.edit(f"⏱ Tagging berjalan... ({total_users})")
+            await progress_msg.edit(f"⏱ Sedang tagall... {total_users}")
         except:
             pass
 
@@ -339,40 +322,65 @@ async def send_batch(chat_id, msg, user_list, emoji_list, mode, progress_msg=Non
 # ================= WORKER =================
 async def worker(chat_id, msg, queue, mode, progress_msg, end_time):
 
-    while True:
+    try:
+        while running_tagall.get(chat_id) and not GLOBAL_STOP:
 
-        if not running_tagall.get(chat_id) or GLOBAL_STOP:
-            break
-
-        if end_time and time.time() > end_time:
-            break
-
-        batch = []
-
-        for _ in range(BATCH_SIZE):
-            if not running_tagall.get(chat_id) or GLOBAL_STOP:
-                return
-
-            try:
-                batch.append(queue.get_nowait())
-            except asyncio.QueueEmpty:
+            if end_time and time.time() > end_time:
                 break
 
-        if not batch:
-            break
+            batch = []
 
-        await send_batch(
-            chat_id,
-            msg,
-            batch,
-            ["🎯"] * len(batch),
-            mode,
-            progress_msg,
-            len(batch)
-        )
+            for _ in range(BATCH_SIZE):
 
-        # 🔥 DELAY DINAMIS (ANTI PATTERN DETECT)
-        await asyncio.sleep(DELAY + random.uniform(0.5, 1.5))
+                # 🔴 HARD STOP DALAM LOOP
+                if GLOBAL_STOP or not running_tagall.get(chat_id):
+                    return
+
+                try:
+                    batch.append(queue.get_nowait())
+                except asyncio.QueueEmpty:
+                    break
+
+            if not batch:
+                break
+
+            await send_batch(
+                chat_id,
+                msg,
+                batch,
+                ["🎯"] * len(batch),
+                mode,
+                progress_msg,
+                len(batch)
+            )
+
+            # 🔴 DELAY TAPI BISA DIKILL
+            for _ in range(int(DELAY * 10)):
+                if GLOBAL_STOP or not running_tagall.get(chat_id):
+                    return
+                await asyncio.sleep(0.1)
+
+    except asyncio.CancelledError:
+        return  # 🔥 langsung mati tanpa error
+
+
+# ================= START TAGALL (WAJIB ADA INI) =================
+async def start_tagall(chat_id, msg, queue, mode, progress_msg=None, end_time=None):
+
+    global GLOBAL_STOP
+    GLOBAL_STOP = False
+    running_tagall[chat_id] = True
+
+    tasks = []
+
+    for _ in range(WORKERS):
+        t = asyncio.create_task(worker(chat_id, msg, queue, mode, progress_msg, end_time))
+        tasks.append(t)
+
+    tagall_tasks[chat_id] = tasks
+
+    await asyncio.gather(*tasks, return_exceptions=True)
+
 
 # ================= DURASI =================
 @kntl.on(events.CallbackQuery(pattern=b"durasi_(.*)"))
@@ -428,22 +436,30 @@ async def pilih_durasi(event):
     await progress_msg.edit(f"✅ DONE tag {len(users)} user")
 
 
-# ================= STOP =================
+# ================= STOP GLOBAL =================
 @kntl.on(events.CallbackQuery(data=b"stop_tagall"))
 async def stop_tagall_handler(event):
     global GLOBAL_STOP
 
-    chat_id = event.chat_id
+    GLOBAL_STOP = True
+    running_tagall[event.chat_id] = False
 
-    running_tagall[chat_id] = False
-    GLOBAL_STOP = True  # 🔥 stop semua worker
+    # 🔥 CANCEL SEMUA TASK LANGSUNG
+    tasks = tagall_tasks.get(event.chat_id, [])
+    for t in tasks:
+        t.cancel()
 
-    await event.answer("🛑 Tagall dihentikan!", alert=True)
+    await event.answer("🛑 Tagall dihentikan TOTAL!", alert=True)
 
     try:
-        await event.edit("🛑 TAGALL DIHENTIKAN")
+        await event.edit("🛑 TAGALL DIHENTIKAN", buttons=[])
     except:
         pass
+
+    # reset biar bisa dipake lagi
+    await asyncio.sleep(1)
+    GLOBAL_STOP = False
+
 
 # ================= COMMAND =================
 @kntl.on(events.NewMessage(pattern="^/(all|tagall) ?(.*)"))
