@@ -20,8 +20,11 @@ from pesan import register as register_loop
 from telethon import Button, TelegramClient, events
 from telethon.tl.types import ChannelParticipantAdmin, ChannelParticipantCreator
 from telethon.tl.functions.channels import GetParticipantRequest
-from telethon.errors import UserNotParticipantError, ChatAdminRequiredError
-
+from telethon.errors import (
+    UserNotParticipantError,
+    ChatAdminRequiredError,
+    FloodWaitError
+)
 from config import *
 
 logging.basicConfig(
@@ -260,17 +263,21 @@ async def ping(event):
     )
     await msg.edit(text, file=banner)
 
+
 # ================= TAGALL CONFIG =================
-BATCH_SIZE = 5          # lebih banyak per kirim biar cepat tapi aman
-WORKERS = 3            # worker dikurang biar gak ngebut banget
-DELAY = 0.8            # delay biar smooth & gak flood
+BATCH_SIZE = 3
+WORKERS = 2              # turunin dikit biar ga brutal
+DELAY = 1.8              # base delay
 
 running_tagall = {}
 GLOBAL_STOP = False
+
+# 🔥 GLOBAL LOCK (ANTI TABRAKAN)
+send_lock = asyncio.Lock()
+
 # ================= SEND BATCH =================
 async def send_batch(chat_id, msg, user_list, emoji_list, mode, progress_msg=None, total_users=None):
 
-    # 🔴 CEK STOP (WAJIB PALING ATAS)
     if not running_tagall.get(chat_id) or GLOBAL_STOP:
         return
 
@@ -285,38 +292,46 @@ async def send_batch(chat_id, msg, user_list, emoji_list, mode, progress_msg=Non
     )
 
     try:
-        # 🔴 CEK LAGI SEBELUM NGIRIM (BIAR SUPER AMAN)
         if not running_tagall.get(chat_id) or GLOBAL_STOP:
             return
 
-        if mode == "tempel":
-            sent_msg = await kntl.send_message(
-                chat_id,
-                full_msg,
-                buttons=[[Button.inline("⛔ STOP", b"stop_tagall")]]
-            )
-        else:
-            sent_msg = await msg.reply(
-                full_msg,
-                buttons=[[Button.inline("⛔ STOP", b"stop_tagall")]]
-            )
+        # 🔥 LOCK BIAR KIRIM 1-1 (ANTI FLOOD)
+        async with send_lock:
 
-        spam_chats.setdefault(f"messages_{chat_id}", []).append(sent_msg.id)
-        message_ids.setdefault(chat_id, []).append(sent_msg.id)
+            if mode == "tempel":
+                sent_msg = await kntl.send_message(
+                    chat_id,
+                    full_msg,
+                    buttons=[[Button.inline("⛔ STOP", b"stop_tagall")]]
+                )
+            else:
+                sent_msg = await msg.reply(
+                    full_msg,
+                    buttons=[[Button.inline("⛔ STOP", b"stop_tagall")]]
+                )
+
+            spam_chats.setdefault(f"messages_{chat_id}", []).append(sent_msg.id)
+            message_ids.setdefault(chat_id, []).append(sent_msg.id)
+
+            # 🔥 delay kecil setelah kirim (penting banget)
+            await asyncio.sleep(random.uniform(1.2, 2.5))
 
     except FloodWaitError as e:
-        await asyncio.sleep(e.seconds + 2)
-    except Exception:
-        pass
+        wait_time = e.seconds + random.randint(2, 6)
+        print(f"⚠️ FloodWait {wait_time}s")
+        await asyncio.sleep(wait_time)
 
-    # 🔴 CEK LAGI SEBELUM PROGRESS
+    except Exception as err:
+        print("ERROR SEND:", err)
+
     if not running_tagall.get(chat_id) or GLOBAL_STOP:
         return
 
-    # progress update (jarang biar gak lag)
-    if progress_msg and total_users and random.random() > 0.7:
+    # ❌ BATASI EDIT (BIAR GA FLOOD)
+    if progress_msg and total_users and random.random() > 0.9:
         try:
-            await progress_msg.edit(f"⏱ Tagging berjalan... ({total_users})")
+            async with send_lock:
+                await progress_msg.edit(f"⏱ Tagging berjalan... ({total_users})")
         except:
             pass
 
@@ -326,7 +341,6 @@ async def worker(chat_id, msg, queue, mode, progress_msg, end_time):
 
     while True:
 
-        # 🔥 CEK STOP GLOBAL / CHAT
         if not running_tagall.get(chat_id) or GLOBAL_STOP:
             break
 
@@ -337,7 +351,7 @@ async def worker(chat_id, msg, queue, mode, progress_msg, end_time):
 
         for _ in range(BATCH_SIZE):
             if not running_tagall.get(chat_id) or GLOBAL_STOP:
-                return  # 🔥 langsung mati
+                return
 
             try:
                 batch.append(queue.get_nowait())
@@ -357,7 +371,8 @@ async def worker(chat_id, msg, queue, mode, progress_msg, end_time):
             len(batch)
         )
 
-        await asyncio.sleep(DELAY)
+        # 🔥 DELAY DINAMIS (ANTI PATTERN DETECT)
+        await asyncio.sleep(DELAY + random.uniform(0.5, 1.5))
 
 # ================= DURASI =================
 @kntl.on(events.CallbackQuery(pattern=b"durasi_(.*)"))
